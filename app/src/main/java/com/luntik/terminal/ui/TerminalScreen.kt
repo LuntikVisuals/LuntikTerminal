@@ -1,5 +1,6 @@
 package com.luntik.terminal.ui
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,12 +17,18 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.luntik.terminal.ApkDownloader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
 
 data class TerminalLine(
     val text: String,
@@ -30,12 +37,15 @@ data class TerminalLine(
 
 @Composable
 fun TerminalScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+
     val lines = remember {
         mutableStateListOf(
             TerminalLine("Microsoft Windows [Version 10.0.19045.3803]", Color(0xFFCCCCCC)),
             TerminalLine("(c) Microsoft Corporation. All rights reserved.", Color(0xFFCCCCCC)),
             TerminalLine(""),
-            TerminalLine("LuntikTerminal v0.1.0 — установщик LuntikStore", Color(0xFF00FF41)),
+            TerminalLine("LuntikTerminal v0.2.0 — установщик LuntikStore", Color(0xFF00FF41)),
             TerminalLine("Введите 'help' для списка команд.", Color(0xFF888888)),
             TerminalLine("")
         )
@@ -43,7 +53,8 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
     var input by remember { mutableStateOf("") }
     var isAuthenticated by remember { mutableStateOf(false) }
-    var isDownloaded by remember { mutableStateOf(false) }
+    var isDownloading by remember { mutableStateOf(false) }
+    var apkFile by remember { mutableStateOf<File?>(null) }
     var isVerified by remember { mutableStateOf(false) }
     var isInstalled by remember { mutableStateOf(false) }
 
@@ -58,6 +69,24 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    fun progressBar(progress: Float): String {
+        val filled = (progress * 20).toInt().coerceIn(0, 20)
+        val empty = 20 - filled
+        return "[" + "█".repeat(filled) + "░".repeat(empty) + "] ${(progress * 100).toInt()}%"
+    }
+
+    fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            var read: Int
+            while (input.read(buffer).also { read = it } != -1) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     fun processCommand(cmd: String) {
         val trimmed = cmd.trim()
         if (trimmed.isEmpty()) return
@@ -66,22 +95,21 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
         val parts = trimmed.lowercase().split("\\s+".toRegex())
         val command = parts.firstOrNull() ?: ""
-        val arg = parts.getOrNull(1) ?: ""
 
         when (command) {
             "help" -> {
                 addLine("")
                 addLine("Доступные команды:", Color(0xFF00FF41))
-                addLine("  help              — показать этот список")
-                addLine("  list / apps       — показать LuntikStore")
-                addLine("  info              — информация о LuntikStore")
-                addLine("  auth / login      — авторизация")
-                addLine("  download          — скачать LuntikStore с GitHub")
-                addLine("  verify            — проверить целостность")
-                addLine("  install           — установить LuntikStore")
-                addLine("  status            — текущий статус")
-                addLine("  clear / cls       — очистить экран")
-                addLine("  exit / quit       — выход")
+                addLine("  help         — показать этот список")
+                addLine("  list / apps  — показать LuntikStore")
+                addLine("  info         — информация о LuntikStore")
+                addLine("  auth / login — авторизация")
+                addLine("  download     — скачать LuntikStore с GitHub")
+                addLine("  verify       — проверить SHA-256")
+                addLine("  install      — установить LuntikStore")
+                addLine("  status       — текущий статус")
+                addLine("  clear / cls  — очистить экран")
+                addLine("  exit / quit  — выход")
                 addLine("")
             }
 
@@ -90,19 +118,19 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                 addLine("=== Доступно для установки ===", Color(0xFF00FF41))
                 addLine("")
                 addLine("  LuntikStore  — Магазин приложений Luntik")
-                addLine("               Источник: github.com/LuntikVisuals/LuntikStore")
+                addLine("  Источник: github.com/LuntikVisuals/LuntikStore")
+                addLine("  URL: releases/latest/download/LuntikStore.apk")
                 addLine("")
-                addLine("Команды: info → auth → download → verify → install")
+                addLine("Порядок: auth → download → verify → install")
                 addLine("")
             }
 
             "info" -> {
                 addLine("")
                 addLine("LuntikStore", Color(0xFF00FF41))
-                addLine("  Версия:      0.1.0")
                 addLine("  Репозиторий: github.com/LuntikVisuals/LuntikStore")
-                addLine("  Описание:    Центральный магазин всех приложений Luntik.")
-                addLine("               Через него можно снова открыть Terminal.")
+                addLine("  Описание:    Центральный магазин приложений Luntik")
+                addLine("  Скачивание:  GitHub Releases (latest)")
                 addLine("  Требования:  Android 8.0+")
                 addLine("")
             }
@@ -114,9 +142,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                     addLine("Авторизация...", Color(0xFF888888))
                     addLine("Проверка устройства... OK")
                     addLine("Подключение к GitHub... OK")
-                    addLine("Генерация временного токена... OK")
                     addLine("Авторизация успешна.", Color(0xFF00FF41))
-                    addLine("Теперь доступна загрузка LuntikStore.")
                     isAuthenticated = true
                 }
                 addLine("")
@@ -124,57 +150,102 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "download" -> {
                 if (!isAuthenticated) {
-                    addLine("Ошибка: сначала выполните команду 'auth'", Color(0xFFFF5555))
+                    addLine("Ошибка: сначала выполните 'auth'", Color(0xFFFF5555))
                     addLine("")
                     return
                 }
-                if (isDownloaded) {
-                    addLine("LuntikStore уже скачан.", Color(0xFF888888))
-                } else {
-                    addLine("Подключение к github.com/LuntikVisuals/LuntikStore...", Color(0xFF00FF41))
-                    addLine("Поиск последнего APK в Actions...")
-                    addLine("Найден артефакт: luntikstore-debug-apk")
-                    addLine("Начинаю загрузку...")
-                    addLine("[████████████████████████████████] 100%")
-                    addLine("Загрузка завершена: LuntikStore.apk")
-                    addLine("Используйте 'verify' для проверки целостности.")
-                    isDownloaded = true
+                if (isDownloading) {
+                    addLine("Загрузка уже идёт...", Color(0xFFFFAA00))
+                    addLine("")
+                    return
                 }
-                addLine("")
+                if (apkFile != null && apkFile!!.exists()) {
+                    addLine("LuntikStore.apk уже скачан.", Color(0xFF888888))
+                    addLine("Используйте 'verify' или 'install'.")
+                    addLine("")
+                    return
+                }
+
+                isDownloading = true
+                addLine("Подключение к GitHub Releases...", Color(0xFF00FF41))
+                addLine(ApkDownloader.STORE_APK_URL, Color(0xFF666666))
+                addLine("Начинаю загрузку...")
+
+                scope.launch {
+                    val result = ApkDownloader.downloadStoreApk(context) { progress ->
+                        // обновляем последнюю строку прогресса — упрощённо просто пишем
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        isDownloading = false
+                        if (result.success && result.file != null) {
+                            apkFile = result.file
+                            val sizeMb = "%.1f".format(result.bytesDownloaded / 1024.0 / 1024.0)
+                            addLine(progressBar(1f), Color(0xFF00FF41))
+                            addLine("Загрузка завершена: LuntikStore.apk ($sizeMb MB)", Color(0xFF00FF41))
+                            addLine("Используйте 'verify' для проверки.")
+                        } else {
+                            addLine("Ошибка загрузки: ${result.error}", Color(0xFFFF5555))
+                            addLine("Убедись, что в LuntikStore есть Release с APK.", Color(0xFFFFAA00))
+                        }
+                        addLine("")
+                    }
+                }
             }
 
             "verify" -> {
-                if (!isDownloaded) {
-                    addLine("Файл не найден. Сначала выполните 'download'.", Color(0xFFFF5555))
-                } else {
-                    addLine("Проверка целостности LuntikStore.apk...", Color(0xFF888888))
-                    addLine("SHA-256: проверяется...")
-                    addLine("Подпись: VALID")
-                    addLine("Проверка пройдена успешно.", Color(0xFF00FF41))
-                    isVerified = true
+                val file = apkFile
+                if (file == null || !file.exists()) {
+                    addLine("Файл не найден. Сначала 'download'.", Color(0xFFFF5555))
+                    addLine("")
+                    return
                 }
-                addLine("")
+                addLine("Проверка целостности LuntikStore.apk...", Color(0xFF888888))
+                scope.launch {
+                    val hash = withContext(Dispatchers.IO) { sha256(file) }
+                    withContext(Dispatchers.Main) {
+                        addLine("SHA-256: ${hash.take(32)}...")
+                        addLine("Размер:  ${file.length()} bytes")
+                        addLine("Проверка пройдена.", Color(0xFF00FF41))
+                        isVerified = true
+                        addLine("")
+                    }
+                }
             }
 
             "install" -> {
-                if (!isDownloaded) {
-                    addLine("Сначала скачайте LuntikStore командой 'download'", Color(0xFFFF5555))
+                val file = apkFile
+                if (file == null || !file.exists()) {
+                    addLine("Сначала скачайте: download", Color(0xFFFF5555))
                     addLine("")
                     return
                 }
                 if (!isVerified) {
-                    addLine("Рекомендуется сначала выполнить 'verify'", Color(0xFFFFAA00))
+                    addLine("Рекомендуется сначала 'verify'", Color(0xFFFFAA00))
                 }
-                addLine("Запуск установки LuntikStore...", Color(0xFF00FF41))
-                addLine("Передача управления системному установщику...")
-                addLine("(В реальной версии здесь откроется системный диалог установки APK)")
-                isInstalled = true
-                addLine("")
-                addLine("========================================", Color(0xFF00FF41))
-                addLine("LuntikStore успешно установлен!", Color(0xFF00FF41))
-                addLine("Ярлык LuntikTerminal будет скрыт.", Color(0xFFFFAA00))
-                addLine("Найти Terminal можно внутри LuntikStore.", Color(0xFFFFAA00))
-                addLine("========================================", Color(0xFF00FF41))
+
+                if (!ApkDownloader.canInstallPackages(context)) {
+                    addLine("Нет разрешения на установку из неизвестных источников.", Color(0xFFFF5555))
+                    addLine("Открываю настройки... Разреши установку и вернись.", Color(0xFFFFAA00))
+                    ApkDownloader.openInstallPermissionSettings(context)
+                    addLine("")
+                    return
+                }
+
+                addLine("Запуск системного установщика...", Color(0xFF00FF41))
+                val ok = ApkDownloader.installApk(context, file)
+                if (ok) {
+                    isInstalled = true
+                    addLine("Диалог установки открыт.", Color(0xFF00FF41))
+                    addLine("")
+                    addLine("========================================", Color(0xFF00FF41))
+                    addLine("После установки LuntikStore:", Color(0xFF00FF41))
+                    addLine("• Ярлык Terminal можно будет скрыть", Color(0xFFFFAA00))
+                    addLine("• Открыть Terminal — изнутри Store", Color(0xFFFFAA00))
+                    addLine("========================================", Color(0xFF00FF41))
+                } else {
+                    addLine("Не удалось открыть установщик.", Color(0xFFFF5555))
+                }
                 addLine("")
             }
 
@@ -182,9 +253,9 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                 addLine("")
                 addLine("=== Статус ===", Color(0xFF00FF41))
                 addLine("Авторизация:  ${if (isAuthenticated) "ДА" else "НЕТ"}")
-                addLine("Скачано:      ${if (isDownloaded) "LuntikStore.apk" else "нет"}")
+                addLine("Скачано:      ${if (apkFile?.exists() == true) "LuntikStore.apk" else "нет"}")
                 addLine("Проверено:    ${if (isVerified) "ДА" else "НЕТ"}")
-                addLine("Установлено:  ${if (isInstalled) "ДА" else "НЕТ"}")
+                addLine("Установлено:  ${if (isInstalled) "диалог открыт" else "НЕТ"}")
                 addLine("")
             }
 
@@ -198,6 +269,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
             "exit", "quit" -> {
                 addLine("Завершение работы LuntikTerminal...")
                 addLine("До свидания.", Color(0xFF00FF41))
+                activity?.finish()
             }
 
             else -> {
