@@ -2,10 +2,12 @@ package com.luntik.terminal.ui
 
 import android.app.Activity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -13,8 +15,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -24,6 +28,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.luntik.terminal.ApkDownloader
+import com.luntik.terminal.ui.theme.Glass
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,7 +37,7 @@ import java.security.MessageDigest
 
 data class TerminalLine(
     val text: String,
-    val color: Color = Color(0xFFCCCCCC)
+    val color: Color = Glass.TextPrimary.copy(alpha = 0.85f)
 )
 
 @Composable
@@ -42,11 +47,12 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
     val lines = remember {
         mutableStateListOf(
-            TerminalLine("Microsoft Windows [Version 10.0.19045.3803]", Color(0xFFCCCCCC)),
-            TerminalLine("(c) Microsoft Corporation. All rights reserved.", Color(0xFFCCCCCC)),
+            TerminalLine("Microsoft Windows [Version 10.0.19045.3803]", Glass.TextSecondary),
+            TerminalLine("(c) Microsoft Corporation. All rights reserved.", Glass.TextSecondary),
             TerminalLine(""),
-            TerminalLine("LuntikTerminal v0.2.0 — установщик LuntikStore", Color(0xFF00FF41)),
-            TerminalLine("Введите 'help' для списка команд.", Color(0xFF888888)),
+            TerminalLine("LuntikTerminal v0.3.0", Glass.Accent),
+            TerminalLine("установщик LuntikStore", Glass.TextMuted),
+            TerminalLine("Введите help для списка команд.", Glass.TextMuted),
             TerminalLine("")
         )
     }
@@ -62,7 +68,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
-    fun addLine(text: String, color: Color = Color(0xFFCCCCCC)) {
+    fun addLine(text: String, color: Color = Glass.TextPrimary.copy(alpha = 0.85f)) {
         lines.add(TerminalLine(text, color))
         scope.launch {
             listState.animateScrollToItem(lines.lastIndex)
@@ -72,7 +78,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
     fun progressBar(progress: Float): String {
         val filled = (progress * 20).toInt().coerceIn(0, 20)
         val empty = 20 - filled
-        return "[" + "█".repeat(filled) + "░".repeat(empty) + "] ${(progress * 100).toInt()}%"
+        return "[" + "#".repeat(filled) + "-".repeat(empty) + "] ${(progress * 100).toInt()}%"
     }
 
     fun sha256(file: File): String {
@@ -91,7 +97,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
         val trimmed = cmd.trim()
         if (trimmed.isEmpty()) return
 
-        addLine("C:\\Luntik> $trimmed", Color(0xFFCCCCCC))
+        addLine("C:\\Luntik> $trimmed", Glass.TextPrimary)
 
         val parts = trimmed.lowercase().split("\\s+".toRegex())
         val command = parts.firstOrNull() ?: ""
@@ -99,35 +105,35 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
         when (command) {
             "help" -> {
                 addLine("")
-                addLine("Доступные команды:", Color(0xFF00FF41))
-                addLine("  help         — показать этот список")
-                addLine("  list / apps  — показать LuntikStore")
-                addLine("  info         — информация о LuntikStore")
-                addLine("  auth / login — авторизация")
-                addLine("  download     — скачать LuntikStore с GitHub")
-                addLine("  verify       — проверить SHA-256")
-                addLine("  install      — установить LuntikStore")
-                addLine("  status       — текущий статус")
-                addLine("  clear / cls  — очистить экран")
-                addLine("  exit / quit  — выход")
+                addLine("Доступные команды:", Glass.Accent)
+                addLine("  help         - показать этот список")
+                addLine("  list / apps  - показать LuntikStore")
+                addLine("  info         - информация о LuntikStore")
+                addLine("  auth / login - авторизация")
+                addLine("  download     - скачать LuntikStore с GitHub")
+                addLine("  verify       - проверить SHA-256")
+                addLine("  install      - установить LuntikStore")
+                addLine("  status       - текущий статус")
+                addLine("  clear / cls  - очистить экран")
+                addLine("  exit / quit  - выход")
                 addLine("")
             }
 
             "list", "apps" -> {
                 addLine("")
-                addLine("=== Доступно для установки ===", Color(0xFF00FF41))
+                addLine("=== Доступно для установки ===", Glass.Accent)
                 addLine("")
-                addLine("  LuntikStore  — Магазин приложений Luntik")
+                addLine("  LuntikStore  - Магазин приложений Luntik")
                 addLine("  Источник: github.com/LuntikVisuals/LuntikStore")
                 addLine("  URL: releases/latest/download/LuntikStore.apk")
                 addLine("")
-                addLine("Порядок: auth → download → verify → install")
+                addLine("Порядок: auth -> download -> verify -> install")
                 addLine("")
             }
 
             "info" -> {
                 addLine("")
-                addLine("LuntikStore", Color(0xFF00FF41))
+                addLine("LuntikStore", Glass.Accent)
                 addLine("  Репозиторий: github.com/LuntikVisuals/LuntikStore")
                 addLine("  Описание:    Центральный магазин приложений Luntik")
                 addLine("  Скачивание:  GitHub Releases (latest)")
@@ -137,12 +143,12 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "auth", "login" -> {
                 if (isAuthenticated) {
-                    addLine("Вы уже авторизованы.", Color(0xFF00FF41))
+                    addLine("Вы уже авторизованы.", Glass.Success)
                 } else {
-                    addLine("Авторизация...", Color(0xFF888888))
+                    addLine("Авторизация...", Glass.TextMuted)
                     addLine("Проверка устройства... OK")
                     addLine("Подключение к GitHub... OK")
-                    addLine("Авторизация успешна.", Color(0xFF00FF41))
+                    addLine("Авторизация успешна.", Glass.Success)
                     isAuthenticated = true
                 }
                 addLine("")
@@ -150,43 +156,41 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "download" -> {
                 if (!isAuthenticated) {
-                    addLine("Ошибка: сначала выполните 'auth'", Color(0xFFFF5555))
+                    addLine("Ошибка: сначала выполните 'auth'", Glass.Error)
                     addLine("")
                     return
                 }
                 if (isDownloading) {
-                    addLine("Загрузка уже идёт...", Color(0xFFFFAA00))
+                    addLine("Загрузка уже идёт...", Glass.Warning)
                     addLine("")
                     return
                 }
                 if (apkFile != null && apkFile!!.exists()) {
-                    addLine("LuntikStore.apk уже скачан.", Color(0xFF888888))
+                    addLine("LuntikStore.apk уже скачан.", Glass.TextMuted)
                     addLine("Используйте 'verify' или 'install'.")
                     addLine("")
                     return
                 }
 
                 isDownloading = true
-                addLine("Подключение к GitHub Releases...", Color(0xFF00FF41))
-                addLine(ApkDownloader.STORE_APK_URL, Color(0xFF666666))
+                addLine("Подключение к GitHub Releases...", Glass.Accent)
+                addLine(ApkDownloader.STORE_APK_URL, Glass.TextMuted)
                 addLine("Начинаю загрузку...")
 
                 scope.launch {
-                    val result = ApkDownloader.downloadStoreApk(context) { progress ->
-                        // обновляем последнюю строку прогресса — упрощённо просто пишем
-                    }
+                    val result = ApkDownloader.downloadStoreApk(context) { }
 
                     withContext(Dispatchers.Main) {
                         isDownloading = false
                         if (result.success && result.file != null) {
                             apkFile = result.file
                             val sizeMb = "%.1f".format(result.bytesDownloaded / 1024.0 / 1024.0)
-                            addLine(progressBar(1f), Color(0xFF00FF41))
-                            addLine("Загрузка завершена: LuntikStore.apk ($sizeMb MB)", Color(0xFF00FF41))
+                            addLine(progressBar(1f), Glass.Success)
+                            addLine("Загрузка завершена: LuntikStore.apk ($sizeMb MB)", Glass.Success)
                             addLine("Используйте 'verify' для проверки.")
                         } else {
-                            addLine("Ошибка загрузки: ${result.error}", Color(0xFFFF5555))
-                            addLine("Убедись, что в LuntikStore есть Release с APK.", Color(0xFFFFAA00))
+                            addLine("Ошибка загрузки: ${result.error}", Glass.Error)
+                            addLine("Убедись, что в LuntikStore есть Release с APK.", Glass.Warning)
                         }
                         addLine("")
                     }
@@ -196,17 +200,17 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
             "verify" -> {
                 val file = apkFile
                 if (file == null || !file.exists()) {
-                    addLine("Файл не найден. Сначала 'download'.", Color(0xFFFF5555))
+                    addLine("Файл не найден. Сначала 'download'.", Glass.Error)
                     addLine("")
                     return
                 }
-                addLine("Проверка целостности LuntikStore.apk...", Color(0xFF888888))
+                addLine("Проверка целостности LuntikStore.apk...", Glass.TextMuted)
                 scope.launch {
                     val hash = withContext(Dispatchers.IO) { sha256(file) }
                     withContext(Dispatchers.Main) {
                         addLine("SHA-256: ${hash.take(32)}...")
                         addLine("Размер:  ${file.length()} bytes")
-                        addLine("Проверка пройдена.", Color(0xFF00FF41))
+                        addLine("Проверка пройдена.", Glass.Success)
                         isVerified = true
                         addLine("")
                     }
@@ -216,42 +220,42 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
             "install" -> {
                 val file = apkFile
                 if (file == null || !file.exists()) {
-                    addLine("Сначала скачайте: download", Color(0xFFFF5555))
+                    addLine("Сначала скачайте: download", Glass.Error)
                     addLine("")
                     return
                 }
                 if (!isVerified) {
-                    addLine("Рекомендуется сначала 'verify'", Color(0xFFFFAA00))
+                    addLine("Рекомендуется сначала 'verify'", Glass.Warning)
                 }
 
                 if (!ApkDownloader.canInstallPackages(context)) {
-                    addLine("Нет разрешения на установку из неизвестных источников.", Color(0xFFFF5555))
-                    addLine("Открываю настройки... Разреши установку и вернись.", Color(0xFFFFAA00))
+                    addLine("Нет разрешения на установку из неизвестных источников.", Glass.Error)
+                    addLine("Открываю настройки... Разреши установку и вернись.", Glass.Warning)
                     ApkDownloader.openInstallPermissionSettings(context)
                     addLine("")
                     return
                 }
 
-                addLine("Запуск системного установщика...", Color(0xFF00FF41))
+                addLine("Запуск системного установщика...", Glass.Accent)
                 val ok = ApkDownloader.installApk(context, file)
                 if (ok) {
                     isInstalled = true
-                    addLine("Диалог установки открыт.", Color(0xFF00FF41))
+                    addLine("Диалог установки открыт.", Glass.Success)
                     addLine("")
-                    addLine("========================================", Color(0xFF00FF41))
-                    addLine("После установки LuntikStore:", Color(0xFF00FF41))
-                    addLine("• Ярлык Terminal можно будет скрыть", Color(0xFFFFAA00))
-                    addLine("• Открыть Terminal — изнутри Store", Color(0xFFFFAA00))
-                    addLine("========================================", Color(0xFF00FF41))
+                    addLine("----------------------------------------", Glass.Accent)
+                    addLine("После установки LuntikStore:", Glass.Success)
+                    addLine("- Ярлык Terminal можно будет скрыть", Glass.Warning)
+                    addLine("- Открыть Terminal - изнутри Store", Glass.Warning)
+                    addLine("----------------------------------------", Glass.Accent)
                 } else {
-                    addLine("Не удалось открыть установщик.", Color(0xFFFF5555))
+                    addLine("Не удалось открыть установщик.", Glass.Error)
                 }
                 addLine("")
             }
 
             "status" -> {
                 addLine("")
-                addLine("=== Статус ===", Color(0xFF00FF41))
+                addLine("=== Статус ===", Glass.Accent)
                 addLine("Авторизация:  ${if (isAuthenticated) "ДА" else "НЕТ"}")
                 addLine("Скачано:      ${if (apkFile?.exists() == true) "LuntikStore.apk" else "нет"}")
                 addLine("Проверено:    ${if (isVerified) "ДА" else "НЕТ"}")
@@ -261,20 +265,20 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "clear", "cls" -> {
                 lines.clear()
-                addLine("Microsoft Windows [Version 10.0.19045.3803]")
-                addLine("(c) Microsoft Corporation. All rights reserved.")
+                addLine("Microsoft Windows [Version 10.0.19045.3803]", Glass.TextSecondary)
+                addLine("(c) Microsoft Corporation. All rights reserved.", Glass.TextSecondary)
                 addLine("")
             }
 
             "exit", "quit" -> {
                 addLine("Завершение работы LuntikTerminal...")
-                addLine("До свидания.", Color(0xFF00FF41))
+                addLine("До свидания.", Glass.Success)
                 activity?.finish()
             }
 
             else -> {
-                addLine("'${trimmed}' не является внутренней или внешней командой,", Color(0xFFFF5555))
-                addLine("исполняемой программой или пакетным файлом.", Color(0xFFFF5555))
+                addLine("'${trimmed}' не является внутренней или внешней командой,", Glass.Error)
+                addLine("исполняемой программой или пакетным файлом.", Glass.Error)
                 addLine("Введите 'help' для списка команд.")
                 addLine("")
             }
@@ -283,9 +287,32 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
     Column(
         modifier = modifier
-            .background(Color(0xFF0C0C0C))
-            .padding(12.dp)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Glass.BgDeep, Glass.BgMid, Glass.BgDeep)
+                )
+            )
+            .statusBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
+        // Glass title chip
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Glass.Fill)
+                .border(1.dp, Glass.Border, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "LuntikTerminal",
+                color = Glass.TextPrimary,
+                fontSize = 13.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -304,28 +331,32 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        // Glass input bar
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Glass.FillStrong)
+                .border(1.dp, Glass.Border, RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp)
         ) {
             Text(
                 text = "C:\\Luntik>",
-                color = Color(0xFFCCCCCC),
+                color = Glass.Accent,
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             BasicTextField(
                 value = input,
                 onValueChange = { input = it },
                 textStyle = TextStyle(
-                    color = Color(0xFFCCCCCC),
+                    color = Glass.TextPrimary,
                     fontSize = 13.sp,
                     fontFamily = FontFamily.Monospace
                 ),
-                cursorBrush = SolidColor(Color(0xFFCCCCCC)),
+                cursorBrush = SolidColor(Glass.Accent),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
