@@ -11,7 +11,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -63,7 +62,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
     var showSettings by remember { mutableStateOf(false) }
 
     val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             try {
@@ -72,16 +71,31 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                     android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) { }
-            prefs.edit().putString(KEY_BG, uri.toString()).apply()
-            bgUri = uri.toString()
+            // copy into app storage so wallpaper survives permission quirks
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val out = File(context.filesDir, "terminal_bg.jpg")
+                    out.outputStream().use { output -> input.copyTo(output) }
+                    prefs.edit().putString(KEY_BG, out.absolutePath).apply()
+                    bgUri = out.absolutePath
+                }
+            } catch (_: Exception) {
+                prefs.edit().putString(KEY_BG, uri.toString()).apply()
+                bgUri = uri.toString()
+            }
         }
     }
 
     val bgBitmap = remember(bgUri) {
         bgUri?.let { u ->
             try {
-                context.contentResolver.openInputStream(Uri.parse(u))?.use {
-                    BitmapFactory.decodeStream(it)
+                val f = File(u)
+                if (f.exists()) {
+                    BitmapFactory.decodeFile(f.absolutePath)
+                } else {
+                    context.contentResolver.openInputStream(Uri.parse(u))?.use {
+                        BitmapFactory.decodeStream(it)
+                    }
                 }
             } catch (_: Exception) {
                 null
@@ -105,10 +119,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
         mutableStateOf(prefs.getBoolean(KEY_AUTH, false))
     }
     var isDownloading by remember { mutableStateOf(false) }
-    var apkFile by remember { mutableStateOf<File?>(null) }
     var showStoreActions by remember { mutableStateOf(false) }
-    var storeNeedUpdate by remember { mutableStateOf(false) }
-    var lastVerifyLog by remember { mutableStateOf<List<String>>(emptyList()) }
 
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
@@ -140,32 +151,19 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                     addLine("Ошибка: ${remote.error ?: "нет данных"}", Glass.Error)
                     addLine("")
                     showStoreActions = true
-                    storeNeedUpdate = true
                     return@withContext
                 }
                 addLine("GitHub tag: ${remote.tagName ?: "latest"}", Glass.Success)
                 remote.publishedAt?.let { addLine("Опубликован: $it", Glass.TextMuted) }
                 remote.apkName?.let { addLine("APK: $it", Glass.TextMuted) }
-
-                val need = when {
-                    local == null -> true
-                    remote.tagName != null && !local.contains(remote.tagName.removePrefix("v")) -> true
-                    else -> true // всегда даём кнопку обновить/переустановить
-                }
-                storeNeedUpdate = need
                 if (local == null) {
                     addLine("Статус: нужно СКАЧАТЬ и установить", Glass.Warning)
                 } else {
                     addLine("Статус: можно ОБНОВИТЬ / переустановить", Glass.Warning)
                 }
-                addLine("Готово. Используй кнопку ниже или download.", Glass.Success)
+                addLine("Готово. Кнопка ниже или команда download.", Glass.Success)
                 addLine("")
                 showStoreActions = true
-                lastVerifyLog = listOf(
-                    "local=$local",
-                    "remote=${remote.tagName}",
-                    "apk=${remote.apkName}"
-                )
             }
         }
     }
@@ -191,7 +189,6 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
             withContext(Dispatchers.Main) {
                 isDownloading = false
                 if (result.success && result.file != null) {
-                    apkFile = result.file
                     val mb = "%.1f".format(result.bytesDownloaded / 1024.0 / 1024.0)
                     addLine("Скачано ($mb MB). Запуск установщика...", Glass.Success)
                     val ok = ApkDownloader.installApk(context, result.file)
@@ -220,40 +217,30 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                     return@withContext
                 }
                 addLine("На GitHub: ${remote.tagName ?: "latest"}", Glass.Success)
-                val hasNew = remote.tagName != null &&
-                    remote.tagName != "latest" &&
-                    !localVer.contains(remote.tagName.removePrefix("v"))
-                // tag latest always offer update button path via apdate
-                if (hasNew || remote.tagName == "latest") {
-                    addLine("Доступна сборка на GitHub.", Glass.Warning)
-                    addLine("Напиши: apdate  — чтобы обновить терминал", Glass.Accent)
-                    if (autoStart) {
-                        addLine("Запускаю обновление...", Glass.Accent)
-                        if (!ApkDownloader.canInstallPackages(context)) {
-                            addLine("Нужно разрешение на установку", Glass.Error)
-                            ApkDownloader.openInstallPermissionSettings(context)
-                            addLine("")
-                            return@withContext
-                        }
-                        isDownloading = true
-                        scope.launch {
-                            val result = ApkDownloader.downloadTerminalApk(context)
-                            withContext(Dispatchers.Main) {
-                                isDownloading = false
-                                if (result.success && result.file != null) {
-                                    addLine("APK скачан. Установка...", Glass.Success)
-                                    ApkDownloader.installApk(context, result.file)
-                                } else {
-                                    addLine("Ошибка: ${result.error}", Glass.Error)
-                                }
-                                addLine("")
-                            }
-                        }
-                    } else {
+                addLine("Доступна сборка. Напиши apdate чтобы обновить.", Glass.Warning)
+                if (autoStart) {
+                    addLine("Запускаю обновление...", Glass.Accent)
+                    if (!ApkDownloader.canInstallPackages(context)) {
+                        addLine("Нужно разрешение на установку", Glass.Error)
+                        ApkDownloader.openInstallPermissionSettings(context)
                         addLine("")
+                        return@withContext
+                    }
+                    isDownloading = true
+                    scope.launch {
+                        val result = ApkDownloader.downloadTerminalApk(context)
+                        withContext(Dispatchers.Main) {
+                            isDownloading = false
+                            if (result.success && result.file != null) {
+                                addLine("APK скачан. Установка...", Glass.Success)
+                                ApkDownloader.installApk(context, result.file)
+                            } else {
+                                addLine("Ошибка: ${result.error}", Glass.Error)
+                            }
+                            addLine("")
+                        }
                     }
                 } else {
-                    addLine("У тебя актуальная версия.", Glass.Success)
                     addLine("")
                 }
             }
@@ -285,7 +272,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "auth", "login" -> {
                 addLine("Привязка устройства...", Glass.TextMuted)
-                addLine("Device ID: ${android.os.Build.MODEL}", Glass.TextMuted)
+                addLine("Device: ${android.os.Build.MODEL}", Glass.TextMuted)
                 addLine("Android: ${android.os.Build.VERSION.RELEASE}", Glass.TextMuted)
                 addLine("Устройство привязано.", Glass.Success)
                 isAuthenticated = true
@@ -296,15 +283,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "verify" -> runVerifyStore()
 
-            "download", "install", "update" -> {
-                // update for store via download
-                if (command == "update") {
-                    // if user meant terminal, they use apdate; here store
-                    downloadAndInstallStore()
-                } else {
-                    downloadAndInstallStore()
-                }
-            }
+            "download", "install", "update" -> downloadAndInstallStore()
 
             "terminal" -> checkAndUpdateTerminal(autoStart = false)
 
@@ -312,7 +291,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             "settings", "setting", "cfg" -> {
                 showSettings = true
-                addLine("Открыты настройки (фон).", Glass.Accent)
+                addLine("Открыты настройки.", Glass.Accent)
                 addLine("")
             }
 
@@ -337,7 +316,6 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // background photo
         if (bgBitmap != null) {
             Image(
                 bitmap = bgBitmap.asImageBitmap(),
@@ -345,18 +323,12 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.62f))
-            )
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)))
         } else {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(listOf(Glass.BgDeep, Glass.BgMid, Glass.BgDeep))
-                    )
+                    .background(Brush.verticalGradient(listOf(Glass.BgDeep, Glass.BgMid, Glass.BgDeep)))
             )
         }
 
@@ -402,9 +374,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
                 items(lines.size) { i ->
                     val line = lines[i]
@@ -477,9 +447,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                             input = ""
                         }
                     ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester)
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester)
                 )
             }
         }
@@ -498,20 +466,19 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                     .clip(RoundedCornerShape(16.dp))
                     .background(Glass.BgMid)
                     .border(1.dp, Glass.Border, RoundedCornerShape(16.dp))
+                    .clickable { /* absorb */ }
                     .padding(20.dp)
             ) {
                 Text("Настройки", color = Glass.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
-                Text("Фон терминала", color = Glass.TextSecondary, fontSize = 13.sp)
+                Text("Фон терминала — любое фото", color = Glass.TextSecondary, fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(Glass.Accent)
-                        .clickable {
-                            pickImage.launch("image/*")
-                        }
+                        .clickable { pickImage.launch(arrayOf("image/*")) }
                         .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -526,6 +493,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                         .clickable {
                             prefs.edit().remove(KEY_BG).apply()
                             bgUri = null
+                            File(context.filesDir, "terminal_bg.jpg").delete()
                         }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center
